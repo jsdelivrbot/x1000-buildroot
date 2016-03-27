@@ -598,6 +598,11 @@ endef
 TARGET_FINALIZE_HOOKS += PURGE_LOCALES
 endif
 
+ifeq ($(BR2_TOOLCHAIN_EXTERNAL_CUSTOM),y)
+LIBC_A_LOCATION=$(shell readlink -f $$(LANG=C $(BR2_TOOLCHAIN_EXTERNAL_PATH)/bin/$(BR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX)-gcc -print-file-name=libc.a))
+SYSROOT_DIR=$(shell echo $(LIBC_A_LOCATION) | sed -r -e 's:usr/lib(64)?/(.*/)?libc\.a::')
+endif
+
 $(TARGETS_ROOTFS): target-finalize
 
 target-finalize: $(PACKAGES)
@@ -662,6 +667,24 @@ endif
 	@$(foreach s, $(call qstrip,$(BR2_ROOTFS_POST_BUILD_SCRIPT)), \
 		$(call MESSAGE,"Executing post-build script $(s)"); \
 		$(EXTRA_ENV) $(s) $(TARGET_DIR) $(call qstrip,$(BR2_ROOTFS_POST_SCRIPT_ARGS))$(sep))
+
+ifneq ("$(SYSROOT_DIR)","")
+# 同步回 sdk 目录
+	rsync -a -r \
+		--exclude .empty --exclude .svn --exclude .git \
+		--exclude .hg --exclude '*~' \
+		--exclude usr/man \
+		--exclude usr/share \
+		$(STAGING_DIR)/ $(SYSROOT_DIR)
+# Fix .la file
+	for i in $$(find $(SYSROOT_DIR)/usr/lib* -name "*.la"); do \
+		support/scripts/fix_libtool_la.sh $$i; \
+	done
+# Fix .pc file
+	for i in $$(find $(SYSROOT_DIR)/usr/lib* -name "*.pc"); do \
+		support/scripts/fix_lib_pc.sh $$i; \
+	done
+endif
 
 target-post-image: $(TARGETS_ROOTFS) target-finalize
 	@$(foreach s, $(call qstrip,$(BR2_ROOTFS_POST_IMAGE_SCRIPT)), \
